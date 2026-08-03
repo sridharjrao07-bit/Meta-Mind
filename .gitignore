@@ -1,0 +1,33 @@
+# Environments & Secrets (CRITICAL)
+.env
+.env.*
+!.env.example
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+*.sqlite3
+
+# Node / Frontend
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# Logs and test outputs
+*.log
+api_out.txt
+scoring_out.txt
+test_output.txt
+out.txt
+
+# OS & Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

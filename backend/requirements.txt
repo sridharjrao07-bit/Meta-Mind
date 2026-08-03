@@ -1,0 +1,20 @@
+# MetaMind Backend Dependencies
+# Requires Python 3.12 or 3.13.
+# Python 3.14 is NOT supported yet — pydantic-core has no pre-built wheel for it.
+# To create the correct venv:
+#   py -3.13 -m venv .venv   (or py -3.12 if 3.13 is not installed)
+#   .\.venv\Scripts\Activate.ps1
+#   pip install -r requirements.txt
+
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+supabase==2.7.4
+google-generativeai==0.8.3
+groq==0.11.0
+PyJWT>=2.10.1,<3.0.0
+cryptography>=42.0.0
+pydantic-settings==2.4.0
+pydantic>=2.8,<3
+python-dotenv==1.0.1
+httpx==0.27.2
+python-multipart==0.0.9
