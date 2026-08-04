@@ -139,14 +139,22 @@ def _validate_isolation_rule(parsed: dict) -> bool:
     return True
 
 
+from services.grounding import fact_check_challenge
+
+
 async def generate_challenge(
     topic_name: str,
     student_explanation: str,
     reference_notes: str,
-) -> GenerationOutput:
+    has_reference: bool = False,
+) -> tuple[GenerationOutput, str, bool]:
     """
     Makes the Debate Agent generation call using Groq via AsyncOpenAI.
-    Validates JSON and ensures the <isolation_rule> was respected.
+    Audits candidate output with the 8B fact-check & isolation pass.
+
+    Returns:
+        tuple[generation: GenerationOutput, grounding_status: str, fact_checked: bool]
+        where grounding_status is one of 'grounded', 'unverified', 'no_reference'.
     """
     settings = get_settings()
 
@@ -158,10 +166,10 @@ async def generate_challenge(
 
     client = AsyncOpenAI(
         api_key=settings.groq_api_key,
-        base_url="https://api.groq.com/openai/v1"
+        base_url="https://api.groq.com/openai/v1",
     )
 
-    prompt = GENERATION_PROMPT_TEMPLATE.format(
+    base_prompt = GENERATION_PROMPT_TEMPLATE.format(
         topic_name=topic_name,
         reference_chunk=reference_notes,
         mastery_summary="N/A for Phase 1",
@@ -169,52 +177,95 @@ async def generate_challenge(
         mode="adult",
         round_type="standard",
         low_score_streak="0",
-        planted_error="N/A"
+        planted_error="N/A",
     )
-    
-    # Append the student explanation dynamically
-    full_user_prompt = prompt + f"\n\nStudent's explanation: {student_explanation}"
 
-    max_retries = 3
-    for attempt in range(max_retries):
+    full_user_prompt = base_prompt + f"\n\nStudent's explanation: {student_explanation}"
+
+    async def _call_llm(user_msg: str) -> dict:
+        response = await client.chat.completions.create(
+            model=settings.groq_debate_model,
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant that outputs JSON."},
+                {"role": "user", "content": user_msg},
+            ],
+            max_tokens=500,
+            temperature=0.7,
+            response_format={"type": "json_object"},
+        )
+        parsed = json.loads(response.choices[0].message.content)
+        ctype = parsed.get("challenge_type", "").lower().replace(" ", "_")
+        if ctype not in ["edge_case", "counterexample", "boundary_condition", "new_context"]:
+            ctype = "edge_case"
+        parsed["challenge_type"] = ctype
+        return parsed
+
+    # 1. Base generation with retry for malformed JSON/API errors
+    candidate = None
+    last_error = None
+    for attempt in range(3):
         try:
-            response = await client.chat.completions.create(
-                model=settings.groq_debate_model,
-                messages=[
-                    {"role": "system", "content": "You are a helpful assistant that outputs JSON."},
-                    {"role": "user", "content": full_user_prompt}
-                ],
-                max_tokens=500,
-                temperature=0.7,
-                response_format={"type": "json_object"}
-            )
-            raw_text = response.choices[0].message.content
-            parsed = json.loads(raw_text)
-            
-            # Map challenge_type to an allowed enum value if it's slightly off
-            ctype = parsed.get("challenge_type", "").lower().replace(" ", "_")
-            if ctype not in ["edge_case", "counterexample", "boundary_condition", "new_context"]:
-                ctype = "edge_case"
-            parsed["challenge_type"] = ctype
-            
-            if _validate_isolation_rule(parsed):
-                return GenerationOutput(**parsed)
-                
-            # If we got here, isolation validation failed. If it's the last attempt, try one fallback.
-            if attempt == max_retries - 1:
-                challenge = parsed.get("challenge", "")
+            candidate = await _call_llm(full_user_prompt)
+            if not _validate_isolation_rule(candidate):
+                challenge = candidate.get("challenge", "")
                 challenge = re.sub(r'(?i)^(ACKNOWLEDGE|LOCATE|CLASSIFY|PRESENT):\s*', '', challenge)
-                parsed["challenge"] = challenge
-                if _validate_isolation_rule(parsed):
-                    return GenerationOutput(**parsed)
-                else:
-                    raise ValueError("Isolation rule failed completely (content bleed)")
-                    
+                candidate["challenge"] = challenge
+            if _validate_isolation_rule(candidate):
+                break
         except Exception as e:
-            if attempt == max_retries - 1:
-                raise HTTPException(
-                    status_code=status.HTTP_502_BAD_GATEWAY,
-                    detail=f"Debate Agent call failed after {max_retries} retries: {str(e)}",
-                )
+            last_error = e
             await asyncio.sleep(0.5)
-            continue
+
+    if candidate is None:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Debate Agent call failed after 3 retries: {last_error}",
+        )
+
+    # If topic has no reference material, skip fact checking and return no_reference
+    if not has_reference:
+        return GenerationOutput(**candidate), "no_reference", False
+
+    # 2. Fact-check & Isolation Pass (8B model)
+    is_valid, audit_reason = await fact_check_challenge(
+        reference_chunk=reference_notes,
+        acknowledgment=candidate.get("acknowledgment", ""),
+        focus_area=candidate.get("focus_area", ""),
+        challenge_type=candidate.get("challenge_type", ""),
+        challenge=candidate.get("challenge", ""),
+    )
+
+    if is_valid:
+        return GenerationOutput(**candidate), "grounded", True
+
+    # 3. Single Retry with Corrective Grounding Directive
+    corrective_prompt = (
+        f"{full_user_prompt}\n\n"
+        f"CORRECTIVE DIRECTIVE: Your previous challenge failed factual grounding/isolation audit: {audit_reason}. "
+        f"You MUST strictly ground the challenge in the reference material ({reference_notes}) and ensure NO prompt markers leak."
+    )
+
+    try:
+        retry_candidate = await _call_llm(corrective_prompt)
+        if not _validate_isolation_rule(retry_candidate):
+            challenge = retry_candidate.get("challenge", "")
+            challenge = re.sub(r'(?i)^(ACKNOWLEDGE|LOCATE|CLASSIFY|PRESENT):\s*', '', challenge)
+            retry_candidate["challenge"] = challenge
+
+        is_valid_retry, retry_reason = await fact_check_challenge(
+            reference_chunk=reference_notes,
+            acknowledgment=retry_candidate.get("acknowledgment", ""),
+            focus_area=retry_candidate.get("focus_area", ""),
+            challenge_type=retry_candidate.get("challenge_type", ""),
+            challenge=retry_candidate.get("challenge", ""),
+        )
+
+        if is_valid_retry and _validate_isolation_rule(retry_candidate):
+            return GenerationOutput(**retry_candidate), "grounded", True
+
+        # Retry failed grounding audit: degrade gracefully to unverified
+        return GenerationOutput(**retry_candidate), "unverified", False
+
+    except Exception:
+        # If retry call failed, return the initial candidate as unverified
+        return GenerationOutput(**candidate), "unverified", False
