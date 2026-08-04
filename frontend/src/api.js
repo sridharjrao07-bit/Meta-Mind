@@ -67,6 +67,12 @@ export const getTopics = (token) =>
 export const createTopic = (token, { name, course, reference_notes }) =>
   request('POST', '/topics', { token, body: { name, course, reference_notes } })
 
+export const addReferenceMaterial = (token, topic_id, { content, source_type }) =>
+  request('POST', `/topics/${topic_id}/reference`, { token, body: { content, source_type } })
+
+export const getReferenceMaterials = (token, topic_id) =>
+  request('GET', `/topics/${topic_id}/reference`, { token })
+
 // ── Debate ────────────────────────────────────────────────────────
 /**
  * debateStart — Phase 2: includes confidence calibration fields.
@@ -90,6 +96,13 @@ export const debateRespond = (token, { round_id, student_rebuttal }) =>
 export const debateCompress = (token, round_id, { summary }) =>
   request('POST', `/debate/${round_id}/compress`, { token, body: { summary } })
 
+/**
+ * flagDebateRound — Phase 4 (12.2): flag a counterargument as factually incorrect or unsupported.
+ */
+export const flagDebateRound = (token, round_id, { reason }) =>
+  request('POST', `/debate/${round_id}/flag`, { token, body: { reason } })
+
 // ── Dashboard ─────────────────────────────────────────────────────
 export const getDashboard = (token) =>
   request('GET', '/dashboard', { token })
+

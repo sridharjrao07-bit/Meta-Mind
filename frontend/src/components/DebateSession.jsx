@@ -18,7 +18,7 @@
  */
 
 import { useState } from 'react'
-import { debateStart, debateRespond, debateCompress } from '../api.js'
+import { debateStart, debateRespond, debateCompress, flagDebateRound } from '../api.js'
 
 const STEP_LABELS = {
   ack: 'Acknowledge',
@@ -28,6 +28,64 @@ const STEP_LABELS = {
   cri: 'Criteria',
   vrd: 'Verdict',
   scr: 'Score',
+}
+
+function GroundingBadge({ status, factChecked }) {
+  if (status === 'grounded') {
+    return (
+      <div style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '0.4rem',
+        padding: '0.3rem 0.65rem',
+        borderRadius: 'var(--radius-sm, 4px)',
+        background: 'rgba(34, 197, 94, 0.12)',
+        border: '1px solid rgba(34, 197, 94, 0.35)',
+        color: '#22c55e',
+        fontSize: '0.75rem',
+        fontWeight: 600,
+        marginBottom: '0.75rem',
+      }}>
+        <span>●</span> Verified Reference Grounded
+      </div>
+    )
+  }
+  if (status === 'unverified') {
+    return (
+      <div style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '0.4rem',
+        padding: '0.3rem 0.65rem',
+        borderRadius: 'var(--radius-sm, 4px)',
+        background: 'rgba(245, 158, 11, 0.12)',
+        border: '1px solid rgba(245, 158, 11, 0.35)',
+        color: '#f59e0b',
+        fontSize: '0.75rem',
+        fontWeight: 600,
+        marginBottom: '0.75rem',
+      }}>
+        <span>⚠️</span> Unverified Challenge (Audit failed)
+      </div>
+    )
+  }
+  return (
+    <div style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: '0.4rem',
+      padding: '0.3rem 0.65rem',
+      borderRadius: 'var(--radius-sm, 4px)',
+      background: 'rgba(148, 163, 184, 0.12)',
+      border: '1px solid rgba(148, 163, 184, 0.3)',
+      color: 'var(--text-muted, #94a3b8)',
+      fontSize: '0.75rem',
+      fontWeight: 500,
+      marginBottom: '0.75rem',
+    }}>
+      <span>ℹ️</span> General Knowledge Mode
+    </div>
+  )
 }
 
 function DebateStep({ type, label, children, animationDelay }) {
@@ -132,10 +190,15 @@ export default function DebateSession({ token, topic, onBack }) {
   const [calibrationDelta, setCalibrationDelta] = useState(null)
   const [error, setError] = useState('')
 
+  // Phase 4: Grounding & Flagging state
+  const [groundingStatus, setGroundingStatus] = useState(null)
+  const [factChecked, setFactChecked] = useState(false)
+  const [showFlagInput, setShowFlagInput] = useState(false)
+  const [flagReason, setFlagReason] = useState('')
+  const [isFlagged, setIsFlagged] = useState(false)
+  const [flagSubmitting, setFlagSubmitting] = useState(false)
+
   // Phase 2: confidence calibration state
-  // predictedScore defaults to 0.5 (50%) for UX friendliness.
-  // sliderTouched=false means the default was never changed — the backend
-  // will NOT include this row in calibration analytics.
   const [predictedScore, setPredictedScore] = useState(0.5)
   const [sliderTouched, setSliderTouched] = useState(false)
 
@@ -152,10 +215,27 @@ export default function DebateSession({ token, topic, onBack }) {
       })
       setRoundId(data.round_id)
       setGeneration(data.generation)
+      setGroundingStatus(data.grounding_status)
+      setFactChecked(data.fact_checked)
       setPhase('challenge_shown')
     } catch (err) {
       setError(err.message)
       setPhase('explain')
+    }
+  }
+
+  async function handleFlagSubmit(e) {
+    e.preventDefault()
+    if (!roundId) return
+    setFlagSubmitting(true)
+    try {
+      await flagDebateRound(token, roundId, { reason: flagReason || undefined })
+      setIsFlagged(true)
+      setShowFlagInput(false)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setFlagSubmitting(false)
     }
   }
 
@@ -186,13 +266,11 @@ export default function DebateSession({ token, topic, onBack }) {
       await debateCompress(token, roundId, { summary: compression })
     } catch (err) {
       // Non-fatal: if compress fails, still allow the user to proceed
-      // (e.g. 409 means it was already saved from a duplicate submit)
     }
     handleReset()
   }
 
   function handleCompressSkip() {
-    // Skipping compression is explicitly allowed — same-page reset (approved decision)
     handleReset()
   }
 
@@ -209,6 +287,11 @@ export default function DebateSession({ token, topic, onBack }) {
     setError('')
     setPredictedScore(0.5)
     setSliderTouched(false)
+    setGroundingStatus(null)
+    setFactChecked(false)
+    setShowFlagInput(false)
+    setFlagReason('')
+    setIsFlagged(false)
   }
 
   const challengeTypeLabel = generation?.challenge_type?.replace(/_/g, ' ')
@@ -320,7 +403,12 @@ export default function DebateSession({ token, topic, onBack }) {
       {/* ── Step 2: Four-step narration + Rebuttal ── */}
       {(phase === 'challenge_shown' || phase === 'rebutting' || phase === 'scored' || phase === 'compress') && generation && (
         <div className="card">
-          <div className="card-title">The Challenge</div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.5rem' }}>
+            <div className="card-title" style={{ marginBottom: 0 }}>The Challenge</div>
+            {groundingStatus && (
+              <GroundingBadge status={groundingStatus} factChecked={factChecked} />
+            )}
+          </div>
 
           {/* Your explanation recap */}
           <div style={{
@@ -353,6 +441,70 @@ export default function DebateSession({ token, topic, onBack }) {
           <DebateStep type="chl" label={STEP_LABELS.chl}>
             {generation.challenge}
           </DebateStep>
+
+          {/* Phase 4: Dispute Flagging (12.2) */}
+          <div style={{ marginTop: '0.75rem', marginBottom: '0.5rem' }}>
+            {!isFlagged ? (
+              <div>
+                {!showFlagInput ? (
+                  <button
+                    id="flag-counterargument-btn"
+                    type="button"
+                    onClick={() => setShowFlagInput(true)}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: 'var(--text-muted)',
+                      cursor: 'pointer',
+                      fontSize: '0.75rem',
+                      padding: 0,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.3rem',
+                    }}
+                  >
+                    <span>🚩</span> Flag challenge as factually incorrect
+                  </button>
+                ) : (
+                  <form onSubmit={handleFlagSubmit} style={{ marginTop: '0.5rem', background: 'var(--bg-secondary)', padding: '0.75rem', borderRadius: 'var(--radius-sm)' }}>
+                    <div style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.4rem' }}>
+                      Dispute Challenge Factuality
+                    </div>
+                    <input
+                      id="flag-reason-input"
+                      type="text"
+                      placeholder="Why is this counterargument factually incorrect? (optional)"
+                      value={flagReason}
+                      onChange={e => setFlagReason(e.target.value)}
+                      maxLength={500}
+                      style={{ width: '100%', fontSize: '0.8rem', marginBottom: '0.5rem' }}
+                    />
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <button
+                        id="submit-flag-btn"
+                        className="btn btn-secondary btn-sm"
+                        type="submit"
+                        disabled={flagSubmitting}
+                      >
+                        {flagSubmitting ? 'Flagging...' : 'Confirm Flag'}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => setShowFlagInput(false)}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                )}
+              </div>
+            ) : (
+              <div style={{ fontSize: '0.75rem', color: 'var(--color-warn, #f59e0b)', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
+                <span>✓</span> Challenge flagged for factual review
+              </div>
+            )}
+          </div>
 
           <hr className="divider" />
 
