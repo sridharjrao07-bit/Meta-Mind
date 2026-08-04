@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from config import get_settings
-from routers import topics, debate, dashboard
+from routers import topics, debate, dashboard, scheduler
 
 settings = get_settings()
 
@@ -26,6 +26,7 @@ app.add_middleware(
 app.include_router(topics.router)
 app.include_router(debate.router)
 app.include_router(dashboard.router)
+app.include_router(scheduler.router)
 
 
 # ── Health Check ─────────────────────────────────────────────────

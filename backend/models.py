@@ -21,6 +21,20 @@ class TopicOut(BaseModel):
     created_at: datetime
 
 
+class ReferenceMaterialCreate(BaseModel):
+    content: str = Field(..., min_length=10, max_length=20000)
+    source_type: Literal["text", "ocr_scan"] = "text"
+
+
+class ReferenceMaterialOut(BaseModel):
+    id: str
+    topic_id: str
+    user_id: str
+    content: str
+    source_type: str
+    created_at: datetime
+
+
 # ── Debate ────────────────────────────────────────────────────
 
 class DebateStartRequest(BaseModel):
@@ -64,6 +78,9 @@ class DebateStartResponse(BaseModel):
     # Echo back calibration fields so the frontend can confirm what was stored
     predicted_score: Optional[float] = None
     slider_touched: bool = False
+    # Phase 4: Grounding & Fact-check metadata
+    grounding_status: Literal["grounded", "unverified", "no_reference"] = "no_reference"
+    fact_checked: bool = False
 
 
 # ── Scoring ───────────────────────────────────────────────────────
@@ -123,3 +140,35 @@ class CompressRequest(BaseModel):
 class CompressResponse(BaseModel):
     round_id: str
     saved: bool
+
+
+# ── Scheduler (Phase 3) ──────────────────────────────────────────────
+
+class SchedulerItem(BaseModel):
+    topic_id: str
+    topic_name: str
+    course: Optional[str]
+    current_score: Optional[float]       # None = never attempted
+    low_score_streak: int                # 0 = never attempted (no streak yet)
+    next_review_due: Optional[datetime]  # None = never attempted
+    # Explicit flag so the frontend can differentiate "never debated" from
+    # "debated and due" without inspecting None fields.
+    never_attempted: bool
+
+
+class SchedulerDueResponse(BaseModel):
+    due: list[SchedulerItem]
+
+
+# ── Flagging (Phase 4) ────────────────────────────────────────────────
+
+class DebateFlagRequest(BaseModel):
+    reason: Optional[str] = Field(None, max_length=1000)
+
+
+class DebateFlagResponse(BaseModel):
+    round_id: str
+    flagged_incorrect: bool
+    flag_reason: Optional[str] = None
+    already_flagged: bool = False
+
