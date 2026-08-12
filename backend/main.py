@@ -1,14 +1,14 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from config import get_settings
-from routers import topics, debate, dashboard, scheduler
+from routers import topics, debate, dashboard, scheduler, knowledge_map
 
 settings = get_settings()
 
 app = FastAPI(
     title="MetaMind API",
     description="AI-driven study companion — backend for argument-based mastery estimation.",
-    version="0.2.0-phase2",
+    version="0.5.0-phase5",
 )
 
 # ── CORS ─────────────────────────────────────────────────────────
@@ -27,6 +27,7 @@ app.include_router(topics.router)
 app.include_router(debate.router)
 app.include_router(dashboard.router)
 app.include_router(scheduler.router)
+app.include_router(knowledge_map.router)  # Phase 5
 
 
 # ── Health Check ─────────────────────────────────────────────────

@@ -107,8 +107,13 @@ def _validate_scoring_output(parsed: dict) -> ScoringOutput:
     elif failure_raw in _ALLOWED_FAILURE_MODES:
         failure_mode = failure_raw
     else:
-        # Coerce unrecognised value to partial_gap rather than failing entirely
-        failure_mode = "partial_gap"
+        # Consistent with mastery_score and verdict: raise loudly, never coerce silently.
+        # Silent substitution of "partial_gap" would mask LLM hallucinations and corrupt
+        # failure_mode data with no visible signal that anything went wrong.
+        raise ValueError(
+            f"'failure_mode' is not a valid value: {failure_raw!r}. "
+            f"Must be one of: {sorted(_ALLOWED_FAILURE_MODES - {None})!r} or 'none'."
+        )
 
     # criteria and weak_point — required non-empty strings
     criteria = str(parsed.get("criteria", "")).strip()

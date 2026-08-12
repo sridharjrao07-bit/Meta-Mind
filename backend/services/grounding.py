@@ -147,8 +147,9 @@ async def fact_check_challenge(
 
     settings = get_settings()
     if not settings.groq_api_key:
-        # If API key is missing, fail open provisionally with unverified signal
-        return True, "Fact-check skipped: GROQ_API_KEY not configured"
+        # Fail closed: missing key must NOT grant is_valid=True (fail-open vulnerability).
+        # Caller will see (False, ...) and degrade to grounding_status="unverified".
+        return False, "Fact-check skipped: GROQ_API_KEY not configured"
 
     client = AsyncOpenAI(
         api_key=settings.groq_api_key,
@@ -185,5 +186,6 @@ async def fact_check_challenge(
         return is_valid, reasoning
 
     except Exception as e:
-        # On transient LLM failure, log and do not hard-crash the debate flow
-        return True, f"Fact-check call failed: {e}"
+        # Fail closed: a transient LLM error must NOT grant is_valid=True.
+        # Caller will see (False, ...) and degrade to grounding_status="unverified".
+        return False, f"Fact-check call failed: {e}"

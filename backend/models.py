@@ -172,3 +172,25 @@ class DebateFlagResponse(BaseModel):
     flag_reason: Optional[str] = None
     already_flagged: bool = False
 
+
+# ── Knowledge Map (Phase 5) ───────────────────────────────────────────────
+
+class KnowledgeMapEdge(BaseModel):
+    """
+    A single edge in the topic knowledge map (Section 10.4).
+    topic_a and topic_b are stored in canonical (sorted) order per the UNIQUE
+    constraint in topic_relations, so (A, B) and (B, A) are the same edge.
+    """
+    topic_a_id: str
+    topic_a_name: str
+    topic_b_id: str
+    topic_b_name: str
+    relation_strength: float   # 0.0 – 1.0, cosine similarity between embeddings
+    updated_at: Optional[datetime] = None
+
+
+class KnowledgeMapResponse(BaseModel):
+    edges: list[KnowledgeMapEdge]
+    # Total number of distinct topics that have at least one edge in the graph
+    node_count: int
+

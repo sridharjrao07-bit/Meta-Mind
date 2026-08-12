@@ -147,10 +147,16 @@ async def generate_challenge(
     student_explanation: str,
     reference_notes: str,
     has_reference: bool = False,
+    related_struggles: str = "No related past struggles found.",
 ) -> tuple[GenerationOutput, str, bool]:
     """
     Makes the Debate Agent generation call using Groq via AsyncOpenAI.
     Audits candidate output with the 8B fact-check & isolation pass.
+
+    Args:
+        related_struggles: Phase 5 cross-topic semantic context string,
+                           formatted as bullet points by get_related_struggles().
+                           Defaults to fallback string if embeddings not configured.
 
     Returns:
         tuple[generation: GenerationOutput, grounding_status: str, fact_checked: bool]
@@ -173,7 +179,7 @@ async def generate_challenge(
         topic_name=topic_name,
         reference_chunk=reference_notes,
         mastery_summary="N/A for Phase 1",
-        related_struggles="N/A for Phase 1",
+        related_struggles=related_struggles,
         mode="adult",
         round_type="standard",
         low_score_streak="0",
@@ -220,6 +226,18 @@ async def generate_challenge(
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Debate Agent call failed after 3 retries: {last_error}",
+        )
+
+    # Explicit post-loop isolation guard: if all 3 attempts still leave a violation,
+    # refuse to ship — raise loudly rather than returning a prompt-label-leaking challenge.
+    if not _validate_isolation_rule(candidate):
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=(
+                "Debate Agent isolation rule violated after 3 attempts: "
+                "prompt labels still present in 'challenge' field. "
+                f"Offending challenge: {candidate.get('challenge', '')[:200]!r}"
+            ),
         )
 
     # If topic has no reference material, skip fact checking and return no_reference
