@@ -2,6 +2,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from config import get_settings
 from routers import topics, debate, dashboard, scheduler, knowledge_map
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import _rate_limit_exceeded_handler
+from rate_limit import limiter
 
 settings = get_settings()
 
@@ -10,6 +13,9 @@ app = FastAPI(
     description="AI-driven study companion — backend for argument-based mastery estimation.",
     version="0.5.0-phase5",
 )
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # ── CORS ─────────────────────────────────────────────────────────
 # Locked to the frontend origin only (Section 5).

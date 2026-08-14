@@ -1,5 +1,6 @@
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status, Request
 from database import get_supabase
+from rate_limit import limiter
 from auth import get_current_user
 from models import (
     DebateStartRequest, DebateStartResponse, GenerationOutput,
@@ -21,7 +22,9 @@ router = APIRouter(prefix="/debate", tags=["debate"])
 
 
 @router.post("/start", response_model=DebateStartResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit("5/minute")
 async def debate_start(
+    request: Request,
     payload: DebateStartRequest,
     user_id: str = Depends(get_current_user),
 ):
@@ -130,7 +133,9 @@ async def debate_start(
 
 
 @router.post("/respond", response_model=DebateRespondResponse)
+@limiter.limit("5/minute")
 async def debate_respond(
+    request: Request,
     payload: DebateRespondRequest,
     background_tasks: BackgroundTasks,
     user_id: str = Depends(get_current_user),

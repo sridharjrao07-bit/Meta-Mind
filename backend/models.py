@@ -1,7 +1,19 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Literal, Optional
 from datetime import datetime
 import uuid
+import re
+
+def validate_no_injection(v: str | None) -> str | None:
+    """Basic blocklist to reject unsophisticated prompt injection attempts."""
+    if not v:
+        return v
+    lower_v = v.strip().lower()
+    if lower_v.startswith("system:") or lower_v.startswith("ignore previous instructions"):
+        raise ValueError("Invalid input pattern detected.")
+    if re.fullmatch(r"[^\w\s]+", v.strip()):
+        raise ValueError("Input must contain alphanumeric characters.")
+    return v
 
 
 # ── Topics ────────────────────────────────────────────────────
@@ -39,7 +51,12 @@ class ReferenceMaterialOut(BaseModel):
 
 class DebateStartRequest(BaseModel):
     topic_id: str
-    student_explanation: str = Field(..., min_length=10, max_length=5000)
+    student_explanation: str = Field(..., min_length=10, max_length=1000)
+
+    @field_validator("student_explanation")
+    @classmethod
+    def check_injection(cls, v):
+        return validate_no_injection(v)
     # Phase 1: mode defaults to adult; mode selection comes in Phase 7
     mode: str = Field(default="adult", pattern="^(kids|teen|adult)$")
     # Phase 2: confidence calibration (10.1)
@@ -87,7 +104,12 @@ class DebateStartResponse(BaseModel):
 
 class DebateRespondRequest(BaseModel):
     round_id: str
-    student_rebuttal: str = Field(..., min_length=5, max_length=5000)
+    student_rebuttal: str = Field(..., min_length=5, max_length=2000)
+
+    @field_validator("student_rebuttal")
+    @classmethod
+    def check_injection(cls, v):
+        return validate_no_injection(v)
 
 
 class ScoringOutput(BaseModel):
@@ -134,7 +156,12 @@ class DashboardOut(BaseModel):
 # ── Compression (10.3) ───────────────────────────────────────────────
 
 class CompressRequest(BaseModel):
-    summary: str = Field(..., min_length=5, max_length=500)
+    summary: str = Field(..., min_length=5, max_length=200)
+
+    @field_validator("summary")
+    @classmethod
+    def check_injection(cls, v):
+        return validate_no_injection(v)
 
 
 class CompressResponse(BaseModel):
@@ -163,7 +190,12 @@ class SchedulerDueResponse(BaseModel):
 # ── Flagging (Phase 4) ────────────────────────────────────────────────
 
 class DebateFlagRequest(BaseModel):
-    reason: Optional[str] = Field(None, max_length=1000)
+    reason: Optional[str] = Field(None, max_length=500)
+
+    @field_validator("reason")
+    @classmethod
+    def check_injection(cls, v):
+        return validate_no_injection(v)
 
 
 class DebateFlagResponse(BaseModel):

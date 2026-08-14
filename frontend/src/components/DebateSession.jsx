@@ -329,6 +329,7 @@ export default function DebateSession({ token, topic, onBack }) {
             <div className="form-group">
               <textarea
                 id="explanation-input"
+                maxLength={1000}
                 placeholder="Explain the concept as if teaching it to someone who's never seen it before..."
                 value={explanation}
                 onChange={e => setExplanation(e.target.value)}
@@ -473,6 +474,7 @@ export default function DebateSession({ token, topic, onBack }) {
                     <input
                       id="flag-reason-input"
                       type="text"
+                      maxLength={500}
                       placeholder="Why is this counterargument factually incorrect? (optional)"
                       value={flagReason}
                       onChange={e => setFlagReason(e.target.value)}
@@ -515,6 +517,7 @@ export default function DebateSession({ token, topic, onBack }) {
                 <label htmlFor="rebuttal-input">Your Response</label>
                 <textarea
                   id="rebuttal-input"
+                  maxLength={2000}
                   placeholder="Defend your explanation or concede the point — either is valid. Be specific."
                   value={rebuttal}
                   onChange={e => setRebuttal(e.target.value)}
@@ -600,12 +603,12 @@ export default function DebateSession({ token, topic, onBack }) {
             <div className="form-group">
               <textarea
                 id="compression-input"
+                maxLength={200}
                 placeholder='e.g. "I learned that photosynthesis requires both light energy and CO₂ as separate inputs, not one."'
                 value={compression}
                 onChange={e => setCompression(e.target.value)}
                 required
                 minLength={5}
-                maxLength={500}
                 style={{ minHeight: '80px' }}
               />
             </div>

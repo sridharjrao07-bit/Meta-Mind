@@ -20,7 +20,7 @@ import httpx
 import jwt
 from jwt.algorithms import ECAlgorithm, RSAAlgorithm
 from jwt.exceptions import InvalidTokenError
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from config import get_settings
 
@@ -67,6 +67,7 @@ def _public_key_from_jwk(jwk: dict):
 
 
 async def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
 ) -> str:
     """
@@ -146,6 +147,7 @@ async def get_current_user(
                 detail="Token missing subject claim",
             )
 
+        request.state.user_id = user_id
         return user_id
 
     except InvalidTokenError as e:
