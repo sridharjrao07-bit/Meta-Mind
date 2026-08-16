@@ -226,3 +226,20 @@ class KnowledgeMapResponse(BaseModel):
     # Total number of distinct topics that have at least one edge in the graph
     node_count: int
 
+
+# ── Gamification (Phase 7) ────────────────────────────────────────────────
+
+class StreakOut(BaseModel):
+    current_streak: int
+    longest_streak: int
+    freeze_tokens: int
+    last_active_date: Optional[datetime]
+
+
+class AchievementOut(BaseModel):
+    id: str
+    topic_id: Optional[str] = None
+    type: str
+    earned_at: datetime
+
+

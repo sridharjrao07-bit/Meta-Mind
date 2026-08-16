@@ -83,6 +83,7 @@ async def debate_start(
         reference_notes=reference_notes,
         has_reference=has_reference,
         related_struggles=related_struggles,
+        mode=payload.mode,
     )
 
     # Write the round to the database.
@@ -228,45 +229,30 @@ async def debate_respond(
     if slider_was_touched and raw_predicted is not None:
         calibration_delta = round(scoring.mastery_score - float(raw_predicted), 4)
 
-    # ── Persist rebuttal + scoring output ──
-    supabase.table("debate_rounds").update({
-        "student_rebuttal": payload.student_rebuttal,
-        "scoring_criteria": scoring.criteria,
-        "verdict": scoring.verdict,
-        "mastery_score": scoring.mastery_score,
-        "failure_mode": scoring.failure_mode,
-        "weak_point": scoring.weak_point,
-    }).eq("id", payload.round_id).eq("user_id", user_id).execute()
+    # ── Phase 7: Atomic Gamification Write (RPC) ──
+    rpc_response = supabase.rpc(
+        "process_debate_respond_transaction",
+        {
+            "p_round_id": payload.round_id,
+            "p_user_id": user_id,
+            "p_topic_id": round_data["topic_id"],
+            "p_student_rebuttal": payload.student_rebuttal,
+            "p_scoring_criteria": scoring.criteria,
+            "p_verdict": scoring.verdict,
+            "p_mastery_score": scoring.mastery_score,
+            "p_failure_mode": scoring.failure_mode,
+            "p_weak_point": scoring.weak_point,
+            "p_next_review_due": next_review_due.isoformat()
+        }
+    ).execute()
 
-    # ── Upsert mastery_state ──
-    existing_state = (
-        supabase.table("mastery_state")
-        .select("current_score, total_attempts, low_score_streak")
-        .eq("topic_id", round_data["topic_id"])
-        .eq("user_id", user_id)
-        .execute()
-    )
-
-    if existing_state.data:
-        state = existing_state.data[0]
-        total_attempts = state["total_attempts"] + 1
-        low_score_streak = (
-            state["low_score_streak"] + 1 if scoring.mastery_score < 0.5
-            else 0
+    if not rpc_response.data or not rpc_response.data.get("success"):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to persist debate state"
         )
-    else:
-        total_attempts = 1
-        low_score_streak = 1 if scoring.mastery_score < 0.5 else 0
-
-    supabase.table("mastery_state").upsert({
-        "topic_id": round_data["topic_id"],
-        "user_id": user_id,
-        "current_score": scoring.mastery_score,
-        "last_reviewed": now.isoformat(),
-        "next_review_due": next_review_due.isoformat(),
-        "total_attempts": total_attempts,
-        "low_score_streak": low_score_streak,
-    }, on_conflict="topic_id").execute()
+        
+    rpc_state = rpc_response.data
 
     # ── Phase 5: Embedding + Knowledge Map (fire-and-forget) ──
     # Scheduled AFTER the DB update. Uses FastAPI BackgroundTasks so the task

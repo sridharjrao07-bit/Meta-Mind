@@ -79,14 +79,14 @@ export const getReferenceMaterials = (token, topic_id) =>
  * predicted_score is 0.0–1.0; slider_touched distinguishes a real prediction
  * from an untouched 50% default (see models.py comment for why this matters).
  */
-export const debateStart = (token, { topic_id, student_explanation, predicted_score, slider_touched }) =>
+export const debateStart = (token, { topic_id, student_explanation, predicted_score, slider_touched, mode }) =>
   request('POST', '/debate/start', {
     token,
-    body: { topic_id, student_explanation, predicted_score, slider_touched: slider_touched ?? false },
+    body: { topic_id, student_explanation, predicted_score, slider_touched: slider_touched ?? false, mode: mode || "adult" },
   })
 
-export const debateRespond = (token, { round_id, student_rebuttal }) =>
-  request('POST', '/debate/respond', { token, body: { round_id, student_rebuttal } })
+export const debateRespond = (token, { round_id, student_rebuttal, mode }) =>
+  request('POST', '/debate/respond', { token, body: { round_id, student_rebuttal, mode: mode || "adult" } })
 
 /**
  * debateCompress — Phase 2 (10.3): submit one-sentence compression summary.
@@ -105,4 +105,11 @@ export const flagDebateRound = (token, round_id, { reason }) =>
 // ── Dashboard ─────────────────────────────────────────────────────
 export const getDashboard = (token) =>
   request('GET', '/dashboard', { token })
+
+// ── Gamification ──────────────────────────────────────────────────
+export const getStreaks = (token) =>
+  request('GET', '/gamification/streaks', { token })
+
+export const getAchievements = (token) =>
+  request('GET', '/gamification/achievements', { token })
 

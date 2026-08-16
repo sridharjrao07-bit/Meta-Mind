@@ -1,5 +1,5 @@
 /* ── Design Tokens ─────────────────────────────────────────────── */
-:root {
+:root, [data-theme="adult"] {
   --bg-primary:     #0a0a0f;
   --bg-secondary:   #111118;
   --bg-card:        #16161f;
@@ -29,6 +29,56 @@
   --font-mono:      'JetBrains Mono', monospace;
 
   --transition:     0.18s ease;
+}
+
+[data-theme="kids"] {
+  --bg-primary:     #f0f8ff;
+  --bg-secondary:   #e0f0ff;
+  --bg-card:        #ffffff;
+  --bg-card-hover:  #f8fbff;
+  --border:         #b0d0ff;
+  --border-focus:   #ff9000;
+
+  --text-primary:   #203040;
+  --text-secondary: #506070;
+  --text-muted:     #8090a0;
+
+  --accent:         #ff9000;
+  --accent-glow:    rgba(255, 144, 0, 0.25);
+  --accent-hover:   #ffaa33;
+  --success:        #2dbb60;
+  --success-bg:     rgba(45, 187, 96, 0.15);
+  --warning:        #f08000;
+  --warning-bg:     rgba(240, 128, 0, 0.15);
+  --danger:         #e04060;
+  --danger-bg:      rgba(224, 64, 96, 0.15);
+
+  --radius-sm:      8px;
+  --radius-md:      16px;
+  --radius-lg:      24px;
+}
+
+[data-theme="teen"] {
+  --bg-primary:     #121212;
+  --bg-secondary:   #1a1a1a;
+  --bg-card:        #202020;
+  --bg-card-hover:  #282828;
+  --border:         #333333;
+  --border-focus:   #00ffcc;
+
+  --text-primary:   #ffffff;
+  --text-secondary: #aaaaaa;
+  --text-muted:     #777777;
+
+  --accent:         #00ffcc;
+  --accent-glow:    rgba(0, 255, 204, 0.25);
+  --accent-hover:   #33ffdd;
+  --success:        #00ff66;
+  --success-bg:     rgba(0, 255, 102, 0.1);
+  --warning:        #ffcc00;
+  --warning-bg:     rgba(255, 204, 0, 0.1);
+  --danger:         #ff3366;
+  --danger-bg:      rgba(255, 51, 102, 0.1);
 }
 
 /* ── Reset ─────────────────────────────────────────────────────── */

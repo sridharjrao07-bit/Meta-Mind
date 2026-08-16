@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
-import { getTopics, getDashboard } from '../api.js'
+import { getTopics, getDashboard, getStreaks, getAchievements } from '../api.js'
+import { useTheme } from '../context/ThemeContext.jsx'
+import { getCopy } from '../Dictionary.js'
 import TopicForm from './TopicForm.jsx'
 import DebateSession from './DebateSession.jsx'
 
@@ -7,6 +9,9 @@ export default function Dashboard({ token, user, onSignOut }) {
   const [view, setView] = useState('topics')          // topics | debate
   const [topics, setTopics] = useState([])
   const [dashboard, setDashboard] = useState(null)
+  const [streaks, setStreaks] = useState(null)
+  const [achievements, setAchievements] = useState([])
+  const { mode, setMode } = useTheme()
   const [selectedTopic, setSelectedTopic] = useState(null)
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
@@ -20,12 +25,16 @@ export default function Dashboard({ token, user, onSignOut }) {
     setLoading(true)
     setError('')
     try {
-      const [topicData, dashData] = await Promise.all([
+      const [topicData, dashData, streakData, achData] = await Promise.all([
         getTopics(token),
         getDashboard(token),
+        getStreaks(token),
+        getAchievements(token),
       ])
       setTopics(topicData)
       setDashboard(dashData)
+      setStreaks(streakData)
+      setAchievements(achData)
     } catch (err) {
       setError(err.message)
     } finally {
@@ -59,6 +68,15 @@ export default function Dashboard({ token, user, onSignOut }) {
             <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
               {user?.email}
             </span>
+            <select 
+              value={mode} 
+              onChange={e => setMode(e.target.value)} 
+              style={{ padding: '0.3rem', width: 'auto', background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}
+            >
+              <option value="adult">{getCopy('adult', 'modeSelectorText')}</option>
+              <option value="teen">{getCopy('teen', 'modeSelectorText')}</option>
+              <option value="kids">{getCopy('kids', 'modeSelectorText')}</option>
+            </select>
             <button
               id="signout-btn"
               className="btn btn-secondary btn-sm"
@@ -90,6 +108,15 @@ export default function Dashboard({ token, user, onSignOut }) {
           <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
             {user?.email}
           </span>
+          <select 
+            value={mode} 
+            onChange={e => setMode(e.target.value)} 
+            style={{ padding: '0.3rem', width: 'auto', background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}
+          >
+            <option value="adult">{getCopy('adult', 'modeSelectorText')}</option>
+            <option value="teen">{getCopy('teen', 'modeSelectorText')}</option>
+            <option value="kids">{getCopy('kids', 'modeSelectorText')}</option>
+          </select>
           <button
             id="signout-btn"
             className="btn btn-secondary btn-sm"
@@ -101,10 +128,42 @@ export default function Dashboard({ token, user, onSignOut }) {
       </header>
 
       <main className="main-content">
+        {/* ── Gamification Stats ── */}
+        <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
+          <div className="card" style={{ flex: 1, minWidth: '150px', marginBottom: 0 }}>
+            <div className="card-title">{getCopy(mode, 'streakLabel')}</div>
+            <div style={{ fontSize: '2rem', fontWeight: 700, color: 'var(--accent)' }}>
+              🔥 {streaks?.current_streak || 0}
+            </div>
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+              {getCopy(mode, 'freezeTokenLabel')}: {streaks?.freeze_tokens || 0}
+            </div>
+          </div>
+          
+          <div className="card" style={{ flex: '2', minWidth: '250px', marginBottom: 0 }}>
+            <div className="card-title">Achievements</div>
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              {achievements.length === 0 ? (
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>No achievements yet</span>
+              ) : (
+                achievements.map(a => (
+                  <span key={a.id} title={a.type} style={{
+                    display: 'inline-block', padding: '0.3rem 0.6rem',
+                    background: 'var(--accent-glow)', color: 'var(--accent)',
+                    borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', fontWeight: 600
+                  }}>
+                    {a.type === 'Perfect Score' ? '⭐' : a.type === 'First Debate Completed' ? '🏆' : a.type === 'Comeback' ? '🔄' : '🔥'} {a.type}
+                  </span>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+
         {/* ── Due today banner ── */}
         {dueCount > 0 && (
           <div className="info-msg" style={{ marginBottom: '1.5rem', marginTop: 0 }}>
-            📅 <strong>{dueCount} topic{dueCount > 1 ? 's' : ''}</strong> due for review today.
+            📅 <strong>{dueCount}</strong> {getCopy(mode, 'dueToday')}.
           </div>
         )}
 

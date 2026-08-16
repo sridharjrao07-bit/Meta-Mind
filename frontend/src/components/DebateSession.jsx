@@ -19,6 +19,8 @@
 
 import { useState } from 'react'
 import { debateStart, debateRespond, debateCompress, flagDebateRound } from '../api.js'
+import { useTheme } from '../context/ThemeContext.jsx'
+import { getCopy } from '../Dictionary.js'
 
 const STEP_LABELS = {
   ack: 'Acknowledge',
@@ -177,6 +179,7 @@ function ScoreDisplay({ scoring }) {
 }
 
 export default function DebateSession({ token, topic, onBack }) {
+  const { mode } = useTheme()
   // Core loop state
   const [phase, setPhase] = useState('explain')
   // explain | challenging | challenge_shown | rebutting | scored | compress
@@ -212,6 +215,7 @@ export default function DebateSession({ token, topic, onBack }) {
         student_explanation: explanation,
         predicted_score: predictedScore,
         slider_touched: sliderTouched,
+        mode,
       })
       setRoundId(data.round_id)
       setGeneration(data.generation)
@@ -247,6 +251,7 @@ export default function DebateSession({ token, topic, onBack }) {
       const data = await debateRespond(token, {
         round_id: roundId,
         student_rebuttal: rebuttal,
+        mode,
       })
       setScoring(data.scoring)
       setNextReview(data.next_review_due)
@@ -330,7 +335,7 @@ export default function DebateSession({ token, topic, onBack }) {
               <textarea
                 id="explanation-input"
                 maxLength={1000}
-                placeholder="Explain the concept as if teaching it to someone who's never seen it before..."
+                placeholder={getCopy(mode, 'explainPrompt')}
                 value={explanation}
                 onChange={e => setExplanation(e.target.value)}
                 required
@@ -518,7 +523,7 @@ export default function DebateSession({ token, topic, onBack }) {
                 <textarea
                   id="rebuttal-input"
                   maxLength={2000}
-                  placeholder="Defend your explanation or concede the point — either is valid. Be specific."
+                  placeholder={getCopy(mode, 'rebuttalPrompt')}
                   value={rebuttal}
                   onChange={e => setRebuttal(e.target.value)}
                   required

@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from config import get_settings
-from routers import topics, debate, dashboard, scheduler, knowledge_map
+from routers import topics, debate, dashboard, scheduler, knowledge_map, gamification
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import _rate_limit_exceeded_handler
 from rate_limit import limiter
@@ -34,6 +34,7 @@ app.include_router(debate.router)
 app.include_router(dashboard.router)
 app.include_router(scheduler.router)
 app.include_router(knowledge_map.router)  # Phase 5
+app.include_router(gamification.router)   # Phase 7
 
 
 # ── Health Check ─────────────────────────────────────────────────

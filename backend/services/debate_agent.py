@@ -148,6 +148,7 @@ async def generate_challenge(
     reference_notes: str,
     has_reference: bool = False,
     related_struggles: str = "No related past struggles found.",
+    mode: str = "adult",
 ) -> tuple[GenerationOutput, str, bool]:
     """
     Makes the Debate Agent generation call using Groq via AsyncOpenAI.
@@ -180,7 +181,7 @@ async def generate_challenge(
         reference_chunk=reference_notes,
         mastery_summary="N/A for Phase 1",
         related_struggles=related_struggles,
-        mode="adult",
+        mode=mode,
         round_type="standard",
         low_score_streak="0",
         planted_error="N/A",

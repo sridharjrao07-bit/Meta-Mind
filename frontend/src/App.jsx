@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import AuthPage from './components/AuthPage.jsx'
 import Dashboard from './components/Dashboard.jsx'
+import { ThemeProvider } from './context/ThemeContext.jsx'
 
 const TOKEN_KEY = 'metamind_token'
 const USER_KEY  = 'metamind_user'
@@ -42,14 +43,20 @@ export default function App() {
   }
 
   if (!token) {
-    return <AuthPage onAuth={handleAuth} />
+    return (
+      <ThemeProvider>
+        <AuthPage onAuth={handleAuth} />
+      </ThemeProvider>
+    )
   }
 
   return (
-    <Dashboard
-      token={token}
-      user={user}
-      onSignOut={handleSignOut}
-    />
+    <ThemeProvider>
+      <Dashboard
+        token={token}
+        user={user}
+        onSignOut={handleSignOut}
+      />
+    </ThemeProvider>
   )
 }
