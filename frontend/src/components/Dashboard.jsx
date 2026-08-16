@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { getTopics, getDashboard, getStreaks, getAchievements } from '../api.js'
 import { useTheme } from '../context/ThemeContext.jsx'
-import { getCopy } from '../Dictionary.js'
+import { getCopy, getAchievementIcon } from '../Dictionary.js'
 import TopicForm from './TopicForm.jsx'
 import DebateSession from './DebateSession.jsx'
 
@@ -141,7 +141,7 @@ export default function Dashboard({ token, user, onSignOut }) {
           </div>
           
           <div className="card" style={{ flex: '2', minWidth: '250px', marginBottom: 0 }}>
-            <div className="card-title">Achievements</div>
+            <div className="card-title">{getCopy(mode, 'achievementsLabel')}</div>
             <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
               {achievements.length === 0 ? (
                 <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>No achievements yet</span>
@@ -152,7 +152,7 @@ export default function Dashboard({ token, user, onSignOut }) {
                     background: 'var(--accent-glow)', color: 'var(--accent)',
                     borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', fontWeight: 600
                   }}>
-                    {a.type === 'Perfect Score' ? '⭐' : a.type === 'First Debate Completed' ? '🏆' : a.type === 'Comeback' ? '🔄' : '🔥'} {a.type}
+                    {getAchievementIcon(a.type)} {a.type}
                   </span>
                 ))
               )}

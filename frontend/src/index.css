@@ -79,6 +79,10 @@
   --warning-bg:     rgba(255, 204, 0, 0.1);
   --danger:         #ff3366;
   --danger-bg:      rgba(255, 51, 102, 0.1);
+
+  --radius-sm:      4px;
+  --radius-md:      8px;
+  --radius-lg:      12px;
 }
 
 /* ── Reset ─────────────────────────────────────────────────────── */

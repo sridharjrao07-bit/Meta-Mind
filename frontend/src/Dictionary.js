@@ -3,6 +3,7 @@ export const Dictionary = {
     dashboardTitle: "Hero Stats",
     streakLabel: "Login Streak!",
     freezeTokenLabel: "Shields",
+    achievementsLabel: "Hero Badges",
     startDebateText: "Challenge Boss",
     modeSelectorText: "Mode: Kids",
     recentMastery: "Recent Badges",
@@ -14,6 +15,7 @@ export const Dictionary = {
     dashboardTitle: "Mastery Dashboard",
     streakLabel: "Streak",
     freezeTokenLabel: "Freezes",
+    achievementsLabel: "Badges",
     startDebateText: "Prove Me Wrong",
     modeSelectorText: "Mode: Teen",
     recentMastery: "Latest Scores",
@@ -25,6 +27,7 @@ export const Dictionary = {
     dashboardTitle: "Mastery Dashboard",
     streakLabel: "Current Streak",
     freezeTokenLabel: "Freeze Tokens",
+    achievementsLabel: "Achievements",
     startDebateText: "Start Debate",
     modeSelectorText: "Mode: Adult",
     recentMastery: "Recent Mastery",
@@ -37,3 +40,12 @@ export const Dictionary = {
 export const getCopy = (mode, key) => {
   return Dictionary[mode]?.[key] || Dictionary['adult'][key] || key;
 };
+
+export const ACHIEVEMENT_ICONS = {
+  'Perfect Score': '⭐',
+  'First Debate Completed': '🏆',
+  'Comeback': '🔄',
+  '3-Day Streak': '🔥',
+};
+
+export const getAchievementIcon = (type) => ACHIEVEMENT_ICONS[type] || '🏅';

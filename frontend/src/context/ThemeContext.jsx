@@ -4,14 +4,18 @@ const ThemeContext = createContext();
 
 export const useTheme = () => useContext(ThemeContext);
 
+const ALLOWED_MODES = ['kids', 'teen', 'adult'];
+
 export const ThemeProvider = ({ children }) => {
   const [mode, setMode] = useState(() => {
-    return localStorage.getItem('metamind-mode') || 'adult';
+    const stored = localStorage.getItem('metamind-mode');
+    return ALLOWED_MODES.includes(stored) ? stored : 'adult';
   });
 
   useEffect(() => {
-    localStorage.setItem('metamind-mode', mode);
-    document.documentElement.setAttribute('data-theme', mode);
+    const validMode = ALLOWED_MODES.includes(mode) ? mode : 'adult';
+    localStorage.setItem('metamind-mode', validMode);
+    document.documentElement.setAttribute('data-theme', validMode);
   }, [mode]);
 
   return (
