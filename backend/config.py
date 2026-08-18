@@ -25,7 +25,7 @@ class Settings(BaseSettings):
 
     # Planner + Helpers — Groq
     groq_api_key: str = ""
-    groq_model: str = "llama-3.1-8b-instant"
+    groq_model: str = "llama-3.3-70b-versatile"
 
     # Embeddings (Phase 5 — optional in Phase 1)
     openai_api_key: str = ""

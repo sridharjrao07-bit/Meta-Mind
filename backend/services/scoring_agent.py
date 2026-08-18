@@ -232,7 +232,7 @@ async def score_rebuttal(
                     {"role": "system", "content": "You are a helpful assistant that outputs JSON."},
                     {"role": "user", "content": prompt},
                 ],
-                max_tokens=500,
+                max_tokens=250,
                 temperature=0.3,
                 response_format={"type": "json_object"},
             )

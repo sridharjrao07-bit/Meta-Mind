@@ -54,22 +54,6 @@ def test_user(supabase_admin):
     supabase_admin.auth.admin.delete_user(user_id)
 
 
-@pytest.fixture
-def test_user_token(supabase_admin, test_user):
-    """Return a valid JWT for the test user."""
-    res = supabase_admin.auth.admin.generate_link({
-        "type": "magiclink",
-        "email": supabase_admin.auth.admin.get_user_by_id(test_user).user.email,
-    })
-    # Fall back to service-role trick: sign in with known credentials
-    from supabase import create_client
-    user_client = create_client(SUPABASE_URL, os.environ.get("SUPABASE_ANON_KEY", ""))
-    sign_in = user_client.auth.sign_in_with_password({
-        "email": supabase_admin.auth.admin.get_user_by_id(test_user).user.email,
-        "password": "testpassword123",
-    })
-    return sign_in.session.access_token
-
 
 @pytest.fixture
 def test_topic_no_reference(supabase_admin, test_user):
