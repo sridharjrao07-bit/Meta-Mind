@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import AuthPage from './components/AuthPage.jsx'
 import Dashboard from './components/Dashboard.jsx'
 import { ThemeProvider } from './context/ThemeContext.jsx'
+import { refreshSession } from './api.js'
 
-const TOKEN_KEY = 'metamind_token'
-const USER_KEY  = 'metamind_user'
+const TOKEN_KEY   = 'metamind_token'
+const USER_KEY    = 'metamind_user'
 
 /** A valid JWT has exactly 3 dot-separated base64 segments. */
 function isValidJwt(t) {
@@ -14,7 +15,6 @@ function isValidJwt(t) {
 function loadStoredToken() {
   const t = localStorage.getItem(TOKEN_KEY)
   if (!isValidJwt(t)) {
-    // Clear any corrupted token from a previous failed auth attempt
     localStorage.removeItem(TOKEN_KEY)
     localStorage.removeItem(USER_KEY)
     return null
@@ -27,6 +27,15 @@ export default function App() {
   const [user, setUser]   = useState(() => {
     try { return JSON.parse(localStorage.getItem(USER_KEY)) } catch { return null }
   })
+
+  // On mount: silently refresh if a refresh_token exists but the access_token
+  // may have expired (e.g. the tab was closed for > 1 hour).
+  useEffect(() => {
+    if (!token) return          // not logged in — nothing to refresh
+    refreshSession().then(newToken => {
+      if (newToken && newToken !== token) setToken(newToken)
+    })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleAuth(accessToken, userData) {
     localStorage.setItem(TOKEN_KEY, accessToken)

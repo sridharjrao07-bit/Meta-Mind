@@ -334,7 +334,6 @@ export default function DebateSession({ token, topic, onBack }) {
             <div className="form-group">
               <textarea
                 id="explanation-input"
-                maxLength={1000}
                 placeholder={getCopy(mode, 'explainPrompt')}
                 value={explanation}
                 onChange={e => setExplanation(e.target.value)}
@@ -479,7 +478,6 @@ export default function DebateSession({ token, topic, onBack }) {
                     <input
                       id="flag-reason-input"
                       type="text"
-                      maxLength={500}
                       placeholder="Why is this counterargument factually incorrect? (optional)"
                       value={flagReason}
                       onChange={e => setFlagReason(e.target.value)}
@@ -522,7 +520,6 @@ export default function DebateSession({ token, topic, onBack }) {
                 <label htmlFor="rebuttal-input">Your Response</label>
                 <textarea
                   id="rebuttal-input"
-                  maxLength={2000}
                   placeholder={getCopy(mode, 'rebuttalPrompt')}
                   value={rebuttal}
                   onChange={e => setRebuttal(e.target.value)}

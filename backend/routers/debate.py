@@ -7,8 +7,9 @@ from models import (
     DebateRespondRequest, DebateRespondResponse, ScoringOutput,
     CompressRequest, CompressResponse,
     DebateFlagRequest, DebateFlagResponse,
+    DebateReverseStartRequest,
 )
-from services.debate_agent import generate_challenge
+from services.debate_agent import generate_challenge, generate_planted_error
 from services.scoring_agent import score_rebuttal
 from services.grounding import get_grounded_reference
 from services.embeddings import (
@@ -76,6 +77,23 @@ async def debate_start(
         limit=3,
     )
 
+    # Phase 8 (10.6): fetch low_score_streak for frustration-aware pacing.
+    # Default to 0 if no mastery_state row exists (topic never attempted).
+    low_score_streak = 0
+    try:
+        streak_res = (
+            supabase.table("mastery_state")
+            .select("low_score_streak")
+            .eq("topic_id", payload.topic_id)
+            .eq("user_id", user_id)
+            .maybe_single()
+            .execute()
+        )
+        if streak_res.data:
+            low_score_streak = streak_res.data.get("low_score_streak", 0) or 0
+    except Exception:
+        pass  # Default 0 is safe; pacing is additive, never blocking.
+
     # Run the Debate Agent generation call + fact check pass
     generation, grounding_status, fact_checked = await generate_challenge(
         topic_name=topic_name,
@@ -84,6 +102,7 @@ async def debate_start(
         has_reference=has_reference,
         related_struggles=related_struggles,
         mode=payload.mode,
+        low_score_streak=low_score_streak,
     )
 
     # Write the round to the database.
@@ -133,6 +152,124 @@ async def debate_start(
     )
 
 
+@router.post("/reverse/start", response_model=DebateStartResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit("5/minute")
+async def debate_reverse_start(
+    request: Request,
+    payload: DebateReverseStartRequest,
+    user_id: str = Depends(get_current_user),
+):
+    """
+    POST /debate/reverse/start — Phase 8 (Section 10.2) endpoint.
+    Initiates a reverse-role "Catch the Error" round:
+    1. Verifies topic ownership (same pattern as /debate/start)
+    2. Requires reference material — no planted error without grounded source
+    3. Calls generate_planted_error() with 3-retry validation (fails at 502)
+    4. Calls generate_challenge(round_type='reverse_role', planted_error=...)
+       using _audit_reverse_role_challenge() instead of standard fact-checker
+    5. Saves round_type='reverse_role' and planted_error to debate_rounds
+    6. Returns DebateStartResponse — planted_error is NOT included in the
+       response to prevent leaking the answer to the frontend
+    """
+    supabase = get_supabase()
+
+    # Ownership check before any LLM call — same pattern as /debate/start
+    topic_response = (
+        supabase.table("topics")
+        .select("id, name")
+        .eq("id", payload.topic_id)
+        .eq("user_id", user_id)
+        .maybe_single()
+        .execute()
+    )
+
+    if not topic_response.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Topic not found or does not belong to this user",
+        )
+
+    topic_name = topic_response.data["name"]
+
+    # Reverse-role requires reference material — planted errors must be grounded
+    reference_notes, has_reference = get_grounded_reference(
+        supabase=supabase,
+        topic_id=payload.topic_id,
+        user_id=user_id,
+        max_chars=4000,
+    )
+
+    if not has_reference:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Reverse-role mode requires verified reference material for this topic. "
+                "Add reference notes via POST /topics/{id}/reference first."
+            ),
+        )
+
+    # Generate and validate exactly one planted error (3 retries, raises 502 on failure)
+    planted_error = await generate_planted_error(
+        topic_name=topic_name,
+        reference_notes=reference_notes,
+    )
+
+    # generate_challenge with reverse_role routing: uses _audit_reverse_role_challenge,
+    # NOT the standard fact_check_challenge, to avoid flagging the intentional error
+    generation, grounding_status, fact_checked = await generate_challenge(
+        topic_name=topic_name,
+        student_explanation="",
+        reference_notes=reference_notes,
+        has_reference=True,
+        mode=payload.mode,
+        round_type="reverse_role",
+        planted_error=planted_error,
+    )
+
+    now = datetime.now(timezone.utc)
+    insert_data = {
+        "topic_id": payload.topic_id,
+        "user_id": user_id,
+        "round_type": "reverse_role",
+        "input_mode": "text",
+        # No student_explanation for reverse-role — the agent explains, student catches error
+        "student_explanation": None,
+        "acknowledgment": generation.acknowledgment,
+        "focus_area": generation.focus_area,
+        "challenge_type": generation.challenge_type,
+        "challenge": generation.challenge,
+        # planted_error stored server-side for scoring; NOT returned to the client
+        "planted_error": planted_error,
+        "slider_touched": False,
+    }
+
+    insert_response = (
+        supabase.table("debate_rounds")
+        .insert(insert_data)
+        .execute()
+    )
+
+    if not insert_response.data:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to save reverse-role debate round",
+        )
+
+    round_id = insert_response.data[0]["id"]
+    created_at = insert_response.data[0]["created_at"]
+
+    # planted_error is intentionally excluded from the response —
+    # leaking it would spoil the exercise before the student attempts it.
+    return DebateStartResponse(
+        round_id=round_id,
+        topic_id=payload.topic_id,
+        generation=generation,
+        created_at=created_at,
+        grounding_status=grounding_status,
+        fact_checked=fact_checked,
+    )
+
+
 @router.post("/respond", response_model=DebateRespondResponse)
 @limiter.limit("5/minute")
 async def debate_respond(
@@ -158,7 +295,7 @@ async def debate_respond(
         supabase.table("debate_rounds")
         .select(
             "id, topic_id, user_id, student_explanation, challenge, challenge_type, "
-            "student_rebuttal, predicted_score, slider_touched"
+            "student_rebuttal, predicted_score, slider_touched, round_type, planted_error"
         )
         .eq("id", payload.round_id)
         .eq("user_id", user_id)  # ownership check
@@ -208,6 +345,8 @@ async def debate_respond(
         student_explanation=round_data["student_explanation"] or "",
         student_rebuttal=payload.student_rebuttal,
         reference_notes=reference_notes,
+        round_type=round_data.get("round_type", "standard"),
+        planted_error=round_data.get("planted_error"),
     )
 
     # ── Compute next_review_due ──

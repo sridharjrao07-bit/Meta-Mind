@@ -45,6 +45,7 @@ CREATE OR REPLACE FUNCTION process_debate_respond_transaction(
 ) RETURNS jsonb AS $$
 DECLARE
     -- Streak working variables
+    v_rows_updated   int;
     v_streak_row     record;
     v_last_active    date;
     v_today          date    := current_date;
@@ -59,8 +60,9 @@ DECLARE
 BEGIN
     -- ── a) Persist rebuttal + scoring onto the debate round ──────────────────
     -- The AND user_id = p_user_id clause is the ownership check —
-    -- the function does nothing (0 rows updated) if the round doesn't belong
-    -- to the calling user, which the Python layer detects via rpc_response.data.success.
+    -- if the round doesn't belong to the calling user (or doesn't exist),
+    -- the UPDATE affects 0 rows. We catch this via GET DIAGNOSTICS and
+    -- short-circuit to return success: false, avoiding any further state changes.
     UPDATE debate_rounds
     SET
         student_rebuttal = p_student_rebuttal,
@@ -70,6 +72,14 @@ BEGIN
         failure_mode     = p_failure_mode,
         weak_point       = p_weak_point
     WHERE id = p_round_id AND user_id = p_user_id;
+
+    GET DIAGNOSTICS v_rows_updated = ROW_COUNT;
+    IF v_rows_updated = 0 THEN
+        RETURN jsonb_build_object(
+            'success', false,
+            'error', 'round not found or not owned by user'
+        );
+    END IF;
 
     -- ── b) Upsert mastery state ───────────────────────────────────────────────
     -- Conflict target is (topic_id) — the PK / unique column on mastery_state.

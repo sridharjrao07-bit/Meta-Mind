@@ -4,9 +4,35 @@
  */
 
 const BASE = '/api'
+const REFRESH_KEY = 'metamind_refresh_token'
+const TOKEN_KEY  = 'metamind_token'
 
 function authHeader(token) {
   return { Authorization: `Bearer ${token}` }
+}
+
+/**
+ * Attempt a silent token refresh via Supabase's refresh_token grant.
+ * Returns the new access_token string on success, null on failure.
+ */
+export async function refreshSession() {
+  const refreshToken = localStorage.getItem(REFRESH_KEY)
+  if (!refreshToken) return null
+  try {
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    })
+    const data = await res.json()
+    if (!res.ok || data.error) return null
+    // Persist the new tokens
+    localStorage.setItem(TOKEN_KEY, data.access_token)
+    if (data.refresh_token) localStorage.setItem(REFRESH_KEY, data.refresh_token)
+    return data.access_token
+  } catch {
+    return null
+  }
 }
 
 async function request(method, path, { token, body } = {}) {
@@ -14,11 +40,23 @@ async function request(method, path, { token, body } = {}) {
     'Content-Type': 'application/json',
     ...(token ? authHeader(token) : {}),
   }
-  const res = await fetch(`${BASE}${path}`, {
+  let res = await fetch(`${BASE}${path}`, {
     method,
     headers,
     body: body ? JSON.stringify(body) : undefined,
   })
+
+  // Auto-refresh on 401: try once with a fresh token
+  if (res.status === 401 && token) {
+    const newToken = await refreshSession()
+    if (newToken) {
+      res = await fetch(`${BASE}${path}`, {
+        method,
+        headers: { 'Content-Type': 'application/json', ...authHeader(newToken) },
+        body: body ? JSON.stringify(body) : undefined,
+      })
+    }
+  }
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }))
@@ -57,6 +95,8 @@ export async function signIn(email, password) {
   const data = await res.json()
   if (data.error) throw new Error(data.error.message || data.error)
   if (data.error_description) throw new Error(data.error_description)
+  // Persist refresh token so refreshSession() can use it on expiry
+  if (data.refresh_token) localStorage.setItem(REFRESH_KEY, data.refresh_token)
   return data  // { access_token, refresh_token, user, ... }
 }
 

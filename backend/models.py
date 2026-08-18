@@ -68,6 +68,16 @@ class DebateStartRequest(BaseModel):
     slider_touched: bool = Field(default=False)
 
 
+class DebateReverseStartRequest(BaseModel):
+    """
+    Phase 8 (10.2): Request payload for /debate/reverse/start.
+    No student_explanation — in reverse-role mode the agent explains,
+    the student's job is to catch the planted error.
+    """
+    topic_id: str
+    mode: str = Field(default="adult", pattern="^(kids|teen|adult)$")
+
+
 class GenerationOutput(BaseModel):
     """
     The four-step narration from the Debate Agent generation call.

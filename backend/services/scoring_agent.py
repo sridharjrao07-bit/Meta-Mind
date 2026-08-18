@@ -4,6 +4,7 @@ from openai import AsyncOpenAI
 from config import get_settings
 from models import ScoringOutput
 from fastapi import HTTPException, status
+from typing import Optional
 
 
 # Phase 2: scoring prompt upgraded to JSON-structured output.
@@ -20,6 +21,7 @@ The challenge presented: {challenge}
 Challenge type: {challenge_type}
 Student's original explanation: {student_explanation}
 Student's response to the challenge: {student_rebuttal}
+Round type: {round_type}
 </context>
 
 <required_process>
@@ -40,6 +42,18 @@ Follow these five steps, in this exact order. Each field maps to one step.
 
 6. WEAK_POINT — A short, specific phrase (under 15 words) describing exactly what to review next time.
 </required_process>
+
+<reverse_role_adjustment>
+If round_type is "reverse_role": the student did NOT provide an initial explanation.
+Instead, the agent presented an explanation of the topic containing exactly one planted error: {planted_error}.
+The student's job was to identify and correct that specific error.
+Assess whether the student:
+  1. Correctly identified the planted error (or a semantically equivalent version of it)
+  2. Explained why it was wrong and what the correct fact is
+
+Do NOT penalize the student for not "defending their own explanation" — there was none.
+Base your verdict purely on whether they caught and correctly corrected the planted error.
+</reverse_role_adjustment>
 
 <isolation_rule>
 CRITICAL: Each JSON field must contain ONLY its own content.
@@ -73,6 +87,14 @@ _ALLOWED_VERDICTS = {"held_up", "partial", "failed"}
 _ALLOWED_FAILURE_MODES = {
     "shallow_memorization", "wrong_mental_model", "correct_but_unclear", "partial_gap", "none", None
 }
+
+# Placeholder injected into student_explanation for reverse-role rounds.
+# The student never submitted an explanation — the agent did. This makes
+# the prompt unambiguous about the context without leaving the field empty.
+_REVERSE_ROLE_EXPLANATION_PLACEHOLDER = (
+    "[No initial explanation in reverse-role mode — the agent presented "
+    "the explanation containing the planted error. Assess the student's rebuttal only.]"
+)
 
 
 def _validate_scoring_output(parsed: dict) -> ScoringOutput:
@@ -136,7 +158,6 @@ def _validate_scoring_output(parsed: dict) -> ScoringOutput:
     )
 
 
-
 async def score_rebuttal(
     topic_name: str,
     challenge: str,
@@ -144,6 +165,8 @@ async def score_rebuttal(
     student_explanation: str,
     student_rebuttal: str,
     reference_notes: str,
+    round_type: str = "standard",
+    planted_error: Optional[str] = None,
 ) -> ScoringOutput:
     """
     Makes the Debate Agent scoring call using Groq via AsyncOpenAI.
@@ -151,6 +174,14 @@ async def score_rebuttal(
     Phase 2 upgrade: structured JSON output with a 3-attempt retry loop,
     mirroring the pattern in debate_agent.py. If all retries are exhausted,
     raises HTTP 502 — never falls back to a silent default score (Fix #2).
+
+    Phase 8 additions:
+    - round_type: "standard" (default) or "reverse_role"
+    - planted_error: the specific error planted in the agent's challenge for
+      reverse_role rounds. Used to anchor the scoring criteria.
+    - For reverse_role rounds, student_explanation is substituted with a
+      placeholder since the student never submitted one — the agent did.
+      This makes the prompt unambiguous about the context.
 
     Always a SEPARATE call from generation — never merged (Section 3, 6).
     Lower temperature (0.3) for more consistent, reproducible scoring.
@@ -168,13 +199,26 @@ async def score_rebuttal(
         base_url="https://api.groq.com/openai/v1"
     )
 
+    # Phase 8: For reverse-role rounds, substitute the empty student_explanation
+    # with an unambiguous placeholder so the scoring agent knows it's assessing
+    # error-detection, not defense of a student explanation.
+    effective_explanation = student_explanation
+    if round_type == "reverse_role":
+        effective_explanation = _REVERSE_ROLE_EXPLANATION_PLACEHOLDER
+
+    # Phase 8: planted_error defaults to "N/A" for standard rounds so the
+    # reverse_role_adjustment block stays inert in the standard case.
+    effective_planted_error = planted_error if planted_error else "N/A"
+
     prompt = SCORING_PROMPT_TEMPLATE.format(
         topic_name=topic_name,
         reference_chunk=reference_notes,
         challenge=challenge,
         challenge_type=challenge_type,
-        student_explanation=student_explanation,
+        student_explanation=effective_explanation,
         student_rebuttal=student_rebuttal,
+        round_type=round_type,
+        planted_error=effective_planted_error,
     )
 
     max_retries = 3

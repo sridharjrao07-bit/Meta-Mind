@@ -1,5 +1,6 @@
 import json
 import re
+import asyncio
 from openai import AsyncOpenAI
 from config import get_settings
 from models import GenerationOutput
@@ -111,7 +112,77 @@ Return only this JSON structure, nothing else:
 </output_format>"""
 
 
-import asyncio
+# ── Prompt for generating the planted error ────────────────────────────────────
+
+_PLANTED_ERROR_PROMPT_TEMPLATE = """You are a precise factual editor working with educational reference material.
+
+Your task: generate exactly ONE specific factual error that could be planted in an explanation of the topic "{topic_name}".
+
+Rules:
+1. The error MUST be a direct alteration of a specific claim in the reference material below.
+2. It must be clearly, objectively false — not just a subtle nuance or rephrasing.
+3. It must be traceable: someone who read the reference material could definitively identify it.
+4. You must produce exactly ONE error — not a list, not multiple changes.
+5. Do NOT invent facts that are not in the reference material at all.
+
+Reference material:
+{reference_chunk}
+
+Return only this JSON structure, nothing else:
+{{
+  "original_claim": "The exact sentence or fact from the reference material being altered",
+  "planted_error": "The altered (false) version of that claim",
+  "traceable_to": "A brief phrase naming the specific part of the reference material this alters"
+}}"""
+
+# ── Prompt to audit planted error validity ─────────────────────────────────────
+
+_PLANTED_ERROR_AUDIT_PROMPT_TEMPLATE = """You are a factual auditor. Assess whether the following planted error meets all validity criteria.
+
+Reference material:
+{reference_chunk}
+
+Proposed planted error:
+- original_claim: {original_claim}
+- planted_error: {planted_error}
+- traceable_to: {traceable_to}
+
+Answer YES only if ALL of the following are true:
+1. The original_claim exists (or is clearly paraphrasable) in the reference material
+2. The planted_error is a clear, objective factual reversal — not a rewording or nuance
+3. The planted_error is traceable to a specific claim in the reference material
+4. Only ONE fact has been changed
+
+Return only this JSON:
+{{
+  "valid": true,
+  "reason": "brief explanation"
+}}"""
+
+# ── Prompt to audit reverse-role challenge (replaces standard fact_check) ─────
+
+_REVERSE_ROLE_AUDIT_PROMPT_TEMPLATE = """You are an auditor for a reverse-role educational exercise. The agent has produced an explanation containing exactly one planted error. Your job is to verify correctness.
+
+Reference material (ground truth):
+{reference_chunk}
+
+Planted error the agent was told to include:
+{planted_error}
+
+Agent's generated explanation (the "challenge" field):
+{challenge}
+
+Audit checklist — answer YES only if ALL are true:
+1. The explanation contains the planted error (or a semantically equivalent version of it)
+2. Every other factual claim in the explanation is supported by the reference material
+3. No additional unsupported claims have been introduced beyond the planted error
+
+Return only this JSON:
+{{
+  "valid": true,
+  "reason": "brief explanation of what passed or failed"
+}}"""
+
 
 def _validate_isolation_rule(parsed: dict) -> bool:
     """
@@ -121,25 +192,177 @@ def _validate_isolation_rule(parsed: dict) -> bool:
     challenge = str(parsed.get("challenge", "")).upper()
     if not challenge:
         return True
-    
+
     # Check for forbidden literal labels
     for forbidden in ["ACKNOWLEDGE", "LOCATE", "CLASSIFY", "PRESENT"]:
         if forbidden in challenge:
             return False
-    
+
     # Check if challenge repeats the acknowledgment or focus_area text verbatim
     ack = str(parsed.get("acknowledgment", ""))
     if ack and len(ack) > 20 and ack.upper() in challenge:
         return False
-        
+
     focus = str(parsed.get("focus_area", ""))
     if focus and len(focus) > 20 and focus.upper() in challenge:
         return False
-        
+
     return True
 
 
 from services.grounding import fact_check_challenge
+
+
+async def generate_planted_error(
+    topic_name: str,
+    reference_notes: str,
+) -> str:
+    """
+    Phase 8 (10.2): Generates exactly one grounded factual error to use in
+    reverse-role mode. The backend specifies the error; the agent never invents
+    one freely (Section 10.2 of dev plan).
+
+    Validation: audits that the error is traceable to the reference material,
+    is genuinely false (not just a rewording), and alters only one fact.
+    If all 3 attempts fail validation, raises HTTP 502 — failing loudly,
+    never silently proceeding with a bad or missing error.
+
+    Returns: the planted_error string for injection into generate_challenge().
+    """
+    settings = get_settings()
+
+    if not settings.groq_api_key:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Debate Agent not configured: GROQ_API_KEY is missing",
+        )
+
+    client = AsyncOpenAI(
+        api_key=settings.groq_api_key,
+        base_url="https://api.groq.com/openai/v1",
+    )
+
+    generation_prompt = _PLANTED_ERROR_PROMPT_TEMPLATE.format(
+        topic_name=topic_name,
+        reference_chunk=reference_notes,
+    )
+
+    last_error: Exception | None = None
+
+    for attempt in range(3):
+        try:
+            # Step 1: Generate a candidate planted error
+            gen_response = await client.chat.completions.create(
+                model=settings.groq_debate_model,
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant that outputs JSON."},
+                    {"role": "user", "content": generation_prompt},
+                ],
+                max_tokens=300,
+                temperature=0.4,
+                response_format={"type": "json_object"},
+            )
+            candidate = json.loads(gen_response.choices[0].message.content)
+            original_claim = str(candidate.get("original_claim", "")).strip()
+            planted_error = str(candidate.get("planted_error", "")).strip()
+            traceable_to = str(candidate.get("traceable_to", "")).strip()
+
+            if not original_claim or not planted_error:
+                last_error = ValueError("Planted error response missing required fields")
+                await asyncio.sleep(0.5)
+                continue
+
+            # Step 2: Audit the candidate
+            audit_prompt = _PLANTED_ERROR_AUDIT_PROMPT_TEMPLATE.format(
+                reference_chunk=reference_notes,
+                original_claim=original_claim,
+                planted_error=planted_error,
+                traceable_to=traceable_to,
+            )
+            audit_response = await client.chat.completions.create(
+                model=settings.groq_debate_model,
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant that outputs JSON."},
+                    {"role": "user", "content": audit_prompt},
+                ],
+                max_tokens=150,
+                temperature=0.1,
+                response_format={"type": "json_object"},
+            )
+            audit_result = json.loads(audit_response.choices[0].message.content)
+
+            if audit_result.get("valid") is True:
+                return planted_error
+
+            last_error = ValueError(
+                f"Planted error failed audit (attempt {attempt + 1}): "
+                f"{audit_result.get('reason', 'no reason given')}"
+            )
+            await asyncio.sleep(0.5)
+
+        except Exception as e:
+            last_error = e
+            await asyncio.sleep(0.5)
+
+    # INTENT: Never silently proceed with an unvalidated planted error.
+    raise HTTPException(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        detail=f"Failed to generate a valid planted error after 3 attempts: {last_error}",
+    )
+
+
+async def _audit_reverse_role_challenge(
+    reference_notes: str,
+    planted_error: str,
+    challenge: str,
+) -> tuple[bool, str]:
+    """
+    Phase 8 specialist auditor for reverse-role rounds.
+
+    Replaces fact_check_challenge() for reverse_role rounds.
+    Verifies:
+      1. The challenge contains the expected planted_error.
+      2. No additional unsupported claims were introduced.
+
+    Standard fact_check_challenge() is INTENTIONALLY skipped for reverse_role
+    because it would correctly flag the planted error as 'not grounded' and
+    trigger the corrective retry loop, defeating the exercise.
+
+    Returns: (is_valid: bool, reason: str)
+    """
+    settings = get_settings()
+
+    if not settings.groq_api_key:
+        # Fail closed: must have API key to audit
+        return False, "Audit failed: no API key configured"
+
+    client = AsyncOpenAI(
+        api_key=settings.groq_api_key,
+        base_url="https://api.groq.com/openai/v1",
+    )
+
+    audit_prompt = _REVERSE_ROLE_AUDIT_PROMPT_TEMPLATE.format(
+        reference_chunk=reference_notes,
+        planted_error=planted_error,
+        challenge=challenge,
+    )
+
+    try:
+        response = await client.chat.completions.create(
+            model=settings.groq_debate_model,
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant that outputs JSON."},
+                {"role": "user", "content": audit_prompt},
+            ],
+            max_tokens=150,
+            temperature=0.1,
+            response_format={"type": "json_object"},
+        )
+        result = json.loads(response.choices[0].message.content)
+        return bool(result.get("valid")), str(result.get("reason", ""))
+    except Exception as e:
+        # Fail closed: if the audit call fails, we cannot verify the candidate
+        return False, f"Audit call failed: {e}"
 
 
 async def generate_challenge(
@@ -149,10 +372,22 @@ async def generate_challenge(
     has_reference: bool = False,
     related_struggles: str = "No related past struggles found.",
     mode: str = "adult",
+    round_type: str = "standard",
+    low_score_streak: int = 0,
+    planted_error: str = "N/A",
 ) -> tuple[GenerationOutput, str, bool]:
     """
     Makes the Debate Agent generation call using Groq via AsyncOpenAI.
     Audits candidate output with the 8B fact-check & isolation pass.
+
+    Phase 8 additions:
+    - round_type: "standard" (default) or "reverse_role" (10.2)
+    - low_score_streak: drives pacing_adjustment in the prompt (10.6)
+    - planted_error: required for reverse_role; ignored for standard
+
+    For reverse_role rounds, the standard fact_check_challenge() is REPLACED
+    by _audit_reverse_role_challenge() to avoid the auditor flagging the
+    intentional error as a hallucination.
 
     Args:
         related_struggles: Phase 5 cross-topic semantic context string,
@@ -182,9 +417,9 @@ async def generate_challenge(
         mastery_summary="N/A for Phase 1",
         related_struggles=related_struggles,
         mode=mode,
-        round_type="standard",
-        low_score_streak="0",
-        planted_error="N/A",
+        round_type=round_type,
+        low_score_streak=str(low_score_streak),
+        planted_error=planted_error,
     )
 
     full_user_prompt = base_prompt + f"\n\nStudent's explanation: {student_explanation}"
@@ -245,7 +480,43 @@ async def generate_challenge(
     if not has_reference:
         return GenerationOutput(**candidate), "no_reference", False
 
-    # 2. Fact-check & Isolation Pass (8B model)
+    # 2a. Reverse-role: use specialist auditor (NOT the standard fact-checker).
+    #     Standard fact-checker would correctly flag the planted error as ungrounded
+    #     and trigger the corrective retry loop, defeating the exercise.
+    if round_type == "reverse_role":
+        is_valid, audit_reason = await _audit_reverse_role_challenge(
+            reference_notes=reference_notes,
+            planted_error=planted_error,
+            challenge=candidate.get("challenge", ""),
+        )
+        if is_valid:
+            return GenerationOutput(**candidate), "grounded", True
+
+        # Single retry with corrective directive for reverse_role audit failure
+        corrective_prompt = (
+            f"{full_user_prompt}\n\n"
+            f"CORRECTIVE DIRECTIVE: Your explanation failed the reverse-role audit: {audit_reason}. "
+            f"You MUST include exactly the following planted error and nothing else unsupported: {planted_error}. "
+            f"All other claims must be grounded in: {reference_notes}"
+        )
+        try:
+            retry_candidate = await _call_llm(corrective_prompt)
+            if not _validate_isolation_rule(retry_candidate):
+                ch = retry_candidate.get("challenge", "")
+                retry_candidate["challenge"] = re.sub(
+                    r'(?i)^(ACKNOWLEDGE|LOCATE|CLASSIFY|PRESENT):\s*', '', ch
+                )
+            is_valid_retry, _ = await _audit_reverse_role_challenge(
+                reference_notes=reference_notes,
+                planted_error=planted_error,
+                challenge=retry_candidate.get("challenge", ""),
+            )
+            status_str = "grounded" if is_valid_retry else "unverified"
+            return GenerationOutput(**retry_candidate), status_str, is_valid_retry
+        except Exception:
+            return GenerationOutput(**candidate), "unverified", False
+
+    # 2b. Standard mode: Fact-check & Isolation Pass (8B model)
     is_valid, audit_reason = await fact_check_challenge(
         reference_chunk=reference_notes,
         acknowledgment=candidate.get("acknowledgment", ""),
